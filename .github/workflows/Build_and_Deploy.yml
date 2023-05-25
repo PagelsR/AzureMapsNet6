@@ -24,8 +24,9 @@ permissions:
   packages: write
       
 jobs:
-  build:
+  Build_Application:
     runs-on: windows-latest #ubuntu-latest
+    name: Build Application
     steps:
     - uses: actions/checkout@v3
 
@@ -92,9 +93,10 @@ jobs:
         name: IaC
         path: ${{ github.workspace }}/IaC/*.*
 
-  deploy_infrastructure:
+  Deploy_Infrastructure:
     runs-on: ubuntu-latest
-    needs: build
+    name: Deploy Infrastructure
+    needs: Build_Application
     outputs:
       output_webSiteName1: ${{ steps.Infra.outputs.out_webSiteName1 }}
       output_webSiteName2: ${{ steps.Infra.outputs.out_webSiteName2 }}
@@ -154,7 +156,8 @@ jobs:
     permissions:
       contents: none
     runs-on: ubuntu-latest
-    needs: deploy_infrastructure
+    name: Deploy Application
+    needs: Deploy_Infrastructure
     environment:
       name: 'Development'
       #url: ${{ steps.deploy_infrastructure.outputs.output_webAppName }}
@@ -183,11 +186,10 @@ jobs:
         path: ${{ github.workspace }}/web1/subscriptionkey
 
     # Deploy Web Application
-    - name: 'Deploy to Azure WebApp'
+    - name: 'Deploy to Azure WebApp1'
       id: deploy-to-webapp-subscriptionkey
       uses: azure/webapps-deploy@v2
       with:
-        images: './web1/subscriptionkey'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName1 }}
         package: './web1/subscriptionkey'
 
@@ -200,11 +202,10 @@ jobs:
         path: ${{ github.workspace }}/web2/anonymous
 
     # Deploy Web Application
-    - name: 'Deploy to Azure WebApp'
+    - name: 'Deploy to Azure WebApp2'
       id: deploy-to-webapp-anonymous
       uses: azure/webapps-deploy@v2
       with:
-        images: ./web2/anonymous'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName2 }}
         package: './web2/anonymous'
 
@@ -217,11 +218,10 @@ jobs:
         path: ${{ github.workspace }}/web3/authaad
 
     # Deploy Web Application
-    - name: 'Deploy to Azure WebApp'
+    - name: 'Deploy to Azure WebApp3'
       id: deploy-to-webapp-authaad
       uses: azure/webapps-deploy@v2
       with:
-        images: './web3/authaad'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName3 }}
         package: './web3/authaad'
 
