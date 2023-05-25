@@ -135,6 +135,7 @@ jobs:
       uses: azure/arm-deploy@v1
       continue-on-error: false
       with:
+        scope: Infrastructure
         resourceGroupName: ${{ env.Azure_Resource_GroupName }}
         template: ./IaC/main-1.bicep
         #parameters: ./IaC/main-1.params.json Deployed_Environment=${{ env.Deployed_Environment }}
@@ -186,6 +187,7 @@ jobs:
       id: deploy-to-webapp-subscriptionkey
       uses: azure/webapps-deploy@v2
       with:
+        images: './web1/subscriptionkey'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName1 }}
         package: './web1/subscriptionkey'
 
@@ -202,6 +204,7 @@ jobs:
       id: deploy-to-webapp-anonymous
       uses: azure/webapps-deploy@v2
       with:
+        images: ./web2/anonymous'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName2 }}
         package: './web2/anonymous'
 
@@ -218,6 +221,7 @@ jobs:
       id: deploy-to-webapp-authaad
       uses: azure/webapps-deploy@v2
       with:
+        images: './web3/authaad'
         app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName3 }}
         package: './web3/authaad'
 
