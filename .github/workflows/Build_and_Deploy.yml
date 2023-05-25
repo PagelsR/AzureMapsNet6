@@ -135,7 +135,7 @@ jobs:
       uses: azure/arm-deploy@v1
       continue-on-error: false
       with:
-        scope: Infrastructure
+        scope: resourcegroup
         resourceGroupName: ${{ env.Azure_Resource_GroupName }}
         template: ./IaC/main-1.bicep
         #parameters: ./IaC/main-1.params.json Deployed_Environment=${{ env.Deployed_Environment }}
