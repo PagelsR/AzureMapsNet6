@@ -1,0 +1,230 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Build_and_Deploy
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+  workflow_dispatch:
+
+env:
+  Azure_Resource_GroupName: 'rg-AzureMapsNet6'
+  Azure_Resource_GroupLocation: 'eastus'
+  CONFIGURATION: Release
+  DOTNET_CORE_VERSION: 6.0.x
+  WORKING_DIRECTORY: .
+  
+permissions:
+  contents: read
+  packages: write
+      
+jobs:
+  build:
+    runs-on: windows-latest #ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/checkout@v2
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: ${{ env.DOTNET_CORE_VERSION }}
+    - name: Restore
+      run: dotnet restore "${{ env.WORKING_DIRECTORY }}"
+
+    ## SubscriptionKey
+    - name: Build
+      run: dotnet build ./SubscriptionKey/SubscriptionKey.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
+
+    - name: Test
+      run: dotnet test "${{ env.WORKING_DIRECTORY }}" --no-build
+    - name: Publish
+      run: dotnet publish ./SubscriptionKey/SubscriptionKey.csproj --configuration ${{ env.CONFIGURATION }} --no-build --output './web1/subscriptionkey'
+
+    - name: Upload Build Artifacts
+      if: ${{ github.event_name != 'pull_request' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: Web1
+        path: ${{ github.workspace }}/web1/subscriptionkey
+
+    ## Anonymous
+    - name: Build
+      run: dotnet build ./Anonymous/Anonymous.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
+
+    - name: Test
+      run: dotnet test "${{ env.WORKING_DIRECTORY }}" --no-build
+    - name: Publish
+      run: dotnet publish ./Anonymous/Anonymous.csproj --configuration ${{ env.CONFIGURATION }} --no-build --output './web2/anonymous'
+
+    - name: Upload Build Artifacts
+      if: ${{ github.event_name != 'pull_request' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: Web2
+        path: ${{ github.workspace }}/web2/anonymous
+
+    ## Authentication AAD
+    - name: Build
+      run: dotnet build ./AuthenticationAAD/AuthenticationAAD.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
+
+    - name: Test
+      run: dotnet test "${{ env.WORKING_DIRECTORY }}" --no-build
+    - name: Publish
+      run: dotnet publish ./AuthenticationAAD/AuthenticationAAD.csproj --configuration ${{ env.CONFIGURATION }} --no-build --output './web3/authaad'
+
+    - name: Upload Build Artifacts
+      if: ${{ github.event_name != 'pull_request' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: Web3
+        path: ${{ github.workspace }}/web3/authaad
+
+    - name: Upload Infrastucture Files
+      if: ${{ github.event_name != 'pull_request' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: IaC
+        path: ${{ github.workspace }}/IaC/*.*
+
+  deploy_infrastructure:
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      output_webSiteName1: ${{ steps.Infra.outputs.out_webSiteName1 }}
+      output_webSiteName2: ${{ steps.Infra.outputs.out_webSiteName2 }}
+      output_webSiteName3: ${{ steps.Infra.outputs.out_webSiteName3 }}
+      
+    steps:
+    - name: Login to Azure
+      uses: azure/login@v1
+      continue-on-error: false
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS_MCAPS }}
+
+    - name: Ensure Resource Group Exists
+      uses: Azure/CLI@v1
+      continue-on-error: true
+      with:
+        inlineScript: |
+          #!/bin/bash
+          az group create --name ${{ env.Azure_Resource_GroupName }} --location ${{ env.Azure_Resource_GroupLocation }}
+
+    - name: Ensure Resource Group is UnLocked
+      #if: contains(github.event_name, 'push')
+      uses: Azure/CLI@v1
+      continue-on-error: true
+      with:
+        inlineScript: |
+          az group lock delete --name DontDeleteMe --resource-group ${{ env.Azure_Resource_GroupName }}
+
+    - name: Download Build Artifact-Infrastructure
+      uses: actions/download-artifact@v2
+      continue-on-error: false
+      with:
+        name: IaC
+        path: ${{ github.workspace }}/IaC
+
+    - name: Deploy Infrastructure
+      id: Infra
+      uses: azure/arm-deploy@v1
+      continue-on-error: false
+      with:
+        resourceGroupName: ${{ env.Azure_Resource_GroupName }}
+        template: ./IaC/main-1.bicep
+        #parameters: ./IaC/main-1.params.json Deployed_Environment=${{ env.Deployed_Environment }}
+        deploymentMode: Incremental
+        failOnStdErr: false
+
+    - name: Ensure Resource Group is Locked
+      #if: contains(github.event_name, 'push')
+      uses: Azure/CLI@v1
+      continue-on-error: true
+      with:
+        inlineScript: |
+          az group lock create --lock-type CanNotDelete --name DontDeleteMe --resource-group ${{ env.Azure_Resource_GroupName }} --notes 'Prevent deletion of the resource group'
+  
+  deploy_app:
+    permissions:
+      contents: none
+    runs-on: ubuntu-latest
+    needs: deploy_infrastructure
+    environment:
+      name: 'Development'
+      #url: ${{ steps.deploy_infrastructure.outputs.output_webAppName }}
+
+    steps:
+    - name: Login to Azure
+      uses: azure/login@v1
+      continue-on-error: false
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS_MCAPS }}
+
+    - name: Ensure Resource Group is UnLocked
+      #if: contains(github.event_name, 'push')
+      uses: Azure/CLI@v1
+      continue-on-error: true
+      with:
+        inlineScript: |
+          az group lock delete --name DontDeleteMe --resource-group ${{ env.Azure_Resource_GroupName }}
+
+    # SubscriptionKey
+    - name: Download Build Artifacts-Web Application
+      uses: actions/download-artifact@v3
+      continue-on-error: false
+      with:
+        name: Web1
+        path: ${{ github.workspace }}/web1/subscriptionkey
+
+    # Deploy Web Application
+    - name: 'Deploy to Azure WebApp'
+      id: deploy-to-webapp-subscriptionkey
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName1 }}
+        package: './web1/subscriptionkey'
+
+    # Anonymous
+    - name: Download Build Artifacts-Web Application
+      uses: actions/download-artifact@v3
+      continue-on-error: false
+      with:
+        name: Web2
+        path: ${{ github.workspace }}/web2/anonymous
+
+    # Deploy Web Application
+    - name: 'Deploy to Azure WebApp'
+      id: deploy-to-webapp-anonymous
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName2 }}
+        package: './web2/anonymous'
+
+    # Authentication AAD
+    - name: Download Build Artifacts-Web Application
+      uses: actions/download-artifact@v3
+      continue-on-error: false
+      with:
+        name: Web3
+        path: ${{ github.workspace }}/web3/authaad
+
+    # Deploy Web Application
+    - name: 'Deploy to Azure WebApp'
+      id: deploy-to-webapp-authaad
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ needs.deploy_infrastructure.outputs.output_webSiteName3 }}
+        package: './web3/authaad'
+
+    - name: Ensure Resource Group is Locked
+      #if: contains(github.event_name, 'push')
+      uses: Azure/CLI@v1
+      continue-on-error: true
+      with:
+        inlineScript: |
+          az group lock create --lock-type CanNotDelete --name DontDeleteMe --resource-group ${{ env.Azure_Resource_GroupName }} --notes 'Prevent deletion of the resource group'
